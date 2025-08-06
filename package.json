@@ -1,0 +1,49 @@
+{
+  "name": "@martinmilo/verve",
+  "version": "1.0.0",
+  "description": "TypeScript domain modeling library with field-level authorization, business rule validation, and context-aware access control",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "author": "Martin Milo",
+  "license": "MIT",
+  "keywords": [
+    "domain-modeling",
+    "business-rules", 
+    "field-validation",
+    "context-aware",
+    "ddd",
+    "authorization",
+    "access-control",
+    "typescript"
+  ],
+  "homepage": "https://github.com/martinmilo/verve#readme",
+  "bugs": {
+    "url": "https://github.com/martinmilo/verve/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/martinmilo/verve.git"
+  },
+  "scripts": {
+    "build": "tsc && npm run build:cli",
+    "build:cli": "chmod +x dist/scripts/generate-types.js",
+    "test": "vitest",
+    "test:watch": "vitest --watch",
+    "dev": "ts-node examples/basic-usage.ts",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build && npm run test",
+    "postinstall": "node -e \"console.log('\\n🎉 Verve installed! Build secure domain models with field-level authorization.\\n')\""
+  },
+  "bin": {
+    "verve": "./dist/scripts/generate-types.js"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "vitest": "^1.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  },
+  "files": [
+    "dist"
+  ]
+}

@@ -1,0 +1,1 @@
+export { AssociationRegistry } from './core/AssociationRegistry';
