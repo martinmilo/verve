@@ -8,5 +8,4 @@ export const DEFAULT_FIELD_OPTIONS: FieldOptions = {
   compute: undefined,
   generator: undefined,
   validators: [],
-  associate: undefined,
 } as const;

@@ -1,0 +1,15 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["vitest/globals", "node"],
+    "baseUrl": ".",
+    "paths": {
+      "@enums/*": ["test/setup/enums/*"]
+    }
+  },
+  "include": ["src/**/*", "test/**/*", "test/.verve/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

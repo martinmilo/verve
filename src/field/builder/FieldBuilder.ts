@@ -33,7 +33,6 @@ export class FieldBuilder<T, Options extends FieldOptions = FieldOptions> {
       compute: bindCompute(this.options.compute, model),
       generator: this.options.generator ?? this.Field.getGlobalGenerator?.() ?? FieldBuilder.defaultOptions.generator,
       validators: bindValidators(this.options.validators, model),
-      associate: this.options.associate ?? FieldBuilder.defaultOptions.associate,
     });
   }
 }

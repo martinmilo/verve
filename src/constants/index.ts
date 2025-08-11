@@ -8,6 +8,7 @@ export const MODEL_INITIAL_STATE = Symbol('ModelInitialState');
 export const MODEL_CHANGE_LOG = Symbol('ModelChangeLog');
 export const MODEL_INITIALIZER = Symbol('ModelInitializer');
 export const MODEL_CONSTRUCTOR = Symbol('ModelConstructor');
+export const MODEL_PROXY = Symbol('ModelProxy');
 
 export const BOUND_FIELD_METADATA = Symbol('BoundFieldMetadata');
 export const BOUND_FIELD_OPTIONS = Symbol('BoundFieldOptions');

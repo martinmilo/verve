@@ -8,7 +8,6 @@ import { WithWritable, type WithWritableFunc } from "../builder/mixins/WithWrita
 import { WithDefault, type WithDefaultFunc } from "../builder/mixins/WithDefault";
 import { WithGenerate, type WithGenerateFunc } from "../builder/mixins/WithGenerate";
 import { WithValidate, type WithValidateFunc } from "../builder/mixins/WithValidate";
-import { WithCompute, type WithComputeFunc } from "../builder/mixins/WithCompute";
 
 export interface NumberFieldBuilder extends FieldBuilder<number> {
   nullable: WithNullableProp<this>;
@@ -16,7 +15,6 @@ export interface NumberFieldBuilder extends FieldBuilder<number> {
   writable: WithWritableFunc<this>;
   default: WithDefaultFunc<this, number>;
   generate: WithGenerateFunc<this, number>;
-  compute: WithComputeFunc<this>;
   validate: WithValidateFunc<this>;
 }
 
@@ -26,7 +24,6 @@ const EnhancedBuilder = composeFieldBuilder<NumberFieldBuilder>(FieldBuilder<num
   WithWritable,
   WithDefault,
   WithGenerate,
-  WithCompute,
   WithValidate,
 ]);
 

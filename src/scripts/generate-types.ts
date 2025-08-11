@@ -16,15 +16,27 @@ interface FieldInfo {
   defaultValue?: any;
 }
 
+interface ImportInfo {
+  modulePath: string;
+  importedTypes: string[];
+  isDefault?: boolean;
+  alias?: string;
+  originFilePath?: string; // Store the original file path for orphaned imports
+  originalStatement?: string; // Store the original import statement
+}
+
 interface ModelInfo {
   name: string;
   fields: FieldInfo[];
   sourceCode?: string; // Store original source code for type parsing
+  filePath?: string; // Store the file path for import resolution
+  imports?: ImportInfo[]; // Store external type imports
 }
 
 class ModelTypeGenerator {
   private models: ModelInfo[] = [];
   private processedFiles = new Set<string>();
+  private orphanedImports: ImportInfo[] = []; // Imports from files where we couldn't extract models
 
   constructor(private rootPath: string) {
     // Register ts-node for TypeScript compilation
@@ -43,10 +55,11 @@ class ModelTypeGenerator {
     }
   }
 
-  async generateTypes(): Promise<void> {
+  async generateTypes(): Promise<string> {
     await this.scanDirectory(this.rootPath);
-    await this.writeTypesFile();
+    const content = await this.writeTypesFile();
     await this.updateModelClasses();
+    return content;
   }
 
   private async scanDirectory(dirPath: string): Promise<void> {
@@ -88,31 +101,62 @@ class ModelTypeGenerator {
       if (filePath.endsWith('.ts')) {
         // Use direct require with ts-node for TypeScript files
         try {
-          // Clear the require cache to ensure fresh imports
-          delete require.cache[require.resolve(path.resolve(filePath))];
-          
-          const module = require(path.resolve(filePath));
-          await this.extractModelsFromModule(module, path.basename(filePath), sourceCode);
+          // Check if file has problematic absolute imports
+          if (this.hasAbsoluteImports(sourceCode)) {
+            // Create a temporary file with absolute imports commented out
+            const tempSourceCode = this.commentOutAbsoluteImports(sourceCode);
+            const tempFilePath = filePath.replace(/\.ts$/, '.temp.ts'); // Keep .ts extension for ts-node
+            
+            try {
+              await fs.promises.writeFile(tempFilePath, tempSourceCode, 'utf-8');
+              
+              // Clear the require cache
+              delete require.cache[require.resolve(path.resolve(tempFilePath))];
+              
+              const module = require(path.resolve(tempFilePath));
+              await this.extractModelsFromModule(module, path.basename(filePath), sourceCode, filePath);
+              
+              // Clean up temp file
+              await fs.promises.unlink(tempFilePath);
+            } catch (tempError) {
+              // Clean up temp file if it exists
+              try {
+                await fs.promises.unlink(tempFilePath);
+              } catch {}
+              
+              console.warn(`Warning: Could not require TypeScript file ${filePath} (even with temp file):`, tempError);
+              this.extractImportsOnly(sourceCode, filePath);
+            }
+          } else {
+            // No problematic imports, proceed normally
+            delete require.cache[require.resolve(path.resolve(filePath))];
+            
+            const module = require(path.resolve(filePath));
+            await this.extractModelsFromModule(module, path.basename(filePath), sourceCode, filePath);
+          }
         } catch (requireError) {
           console.warn(`Warning: Could not require TypeScript file ${filePath}:`, requireError);
+          // Even if we can't require the module, we can still extract imports from source code
+          // This is useful when models have unresolvable imports but we still want to copy the type imports
+          this.extractImportsOnly(sourceCode, filePath);
         }
       } else {
         // Handle JavaScript files with dynamic import
         const absolutePath = path.resolve(filePath);
         const fileUrl = pathToFileURL(absolutePath).href;
-        await this.importAndExtractModels(fileUrl, path.basename(filePath), sourceCode);
+        await this.importAndExtractModels(fileUrl, path.basename(filePath), sourceCode, filePath);
       }
     } catch (error) {
       console.warn(`Warning: Could not process file ${filePath}:`, error);
     }
   }
 
-  private async extractModelsFromModule(module: any, fileName: string, sourceCode?: string): Promise<void> {
+  private async extractModelsFromModule(module: any, fileName: string, sourceCode?: string, filePath?: string): Promise<void> {
     try {
       // Look for exported classes that have a schema property (indicating they're models)
       for (const [exportName, exportValue] of Object.entries(module)) {
         if (this.isModelClass(exportValue)) {
-          const modelInfo = this.extractModelInfo(exportValue as any, exportName, sourceCode);
+          const modelInfo = this.extractModelInfo(exportValue as any, exportName, sourceCode, filePath);
           if (modelInfo) {
             this.models.push(modelInfo);
             console.log(`Found model: ${exportName} in ${fileName}`);
@@ -124,12 +168,111 @@ class ModelTypeGenerator {
     }
   }
 
-  private async importAndExtractModels(fileUrl: string, fileName: string, sourceCode?: string): Promise<void> {
+  private async importAndExtractModels(fileUrl: string, fileName: string, sourceCode?: string, filePath?: string): Promise<void> {
     try {
       const module = await import(fileUrl);
-      await this.extractModelsFromModule(module, fileName, sourceCode);
+      await this.extractModelsFromModule(module, fileName, sourceCode, filePath);
     } catch (error) {
       // Silently ignore import errors as not all files may be importable
+    }
+  }
+
+  private hasAbsoluteImports(sourceCode: string): boolean {
+    // Check for imports that are not relative (don't start with . or /)
+    // but exclude 'verve' imports which should work
+    const importPattern = /import\s+[^;]+\s+from\s*['"]([^'"]+)['"]/g;
+    let match;
+    
+    while ((match = importPattern.exec(sourceCode)) !== null) {
+      const importPath = match[1];
+      // Skip verve imports and relative/absolute file paths
+      if (importPath === 'verve' || importPath.startsWith('.') || importPath.startsWith('/') || importPath.startsWith('node_modules')) {
+        continue;
+      }
+      
+      // This is a problematic absolute import
+      if (!importPath.startsWith('.') && !importPath.startsWith('/')) {
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
+  private commentOutAbsoluteImports(sourceCode: string): string {
+    // First, extract what types are being imported from absolute imports
+    const importedTypes = new Map<string, string>();
+    
+    const absoluteImportPattern = /^(\s*import\s+(?:\{([^}]+)\}|\*\s+as\s+(\w+)|(\w+))\s+from\s*['"](?![\.\/])[^'"]+['"]\s*;?\s*)$/gm;
+    let match;
+    
+    while ((match = absoluteImportPattern.exec(sourceCode)) !== null) {
+      if (match[2]) {
+        // Named imports: { Type1, Type2 }
+        const namedImports = match[2].split(',').map(s => s.trim());
+        namedImports.forEach(imp => {
+          const cleanName = imp.split(' as ')[0].trim();
+          importedTypes.set(cleanName, 'string'); // Default placeholder type
+        });
+      } else if (match[3]) {
+        // Namespace import: * as Namespace
+        importedTypes.set(match[3], '{}');
+      } else if (match[4]) {
+        // Default import
+        importedTypes.set(match[4], 'string');
+      }
+    }
+    
+    // Comment out absolute imports and replace with placeholders, but keep 'verve' imports
+    let result = sourceCode.replace(/^(\s*import\s+[^;]+\s+from\s*['"]([^'"]+)['"]\s*;?\s*)$/gm, (match, fullMatch, importPath) => {
+      // Don't comment out verve imports or relative imports
+      if (importPath === 'verve' || importPath.startsWith('.') || importPath.startsWith('/') || importPath.startsWith('node_modules')) {
+        return match; // Keep as-is
+      }
+      
+      // Comment out the problematic absolute import and add placeholder declarations right after
+      const commentedImport = `// ${match.trim()}`;
+      
+      // Extract types from this specific import to create placeholders
+      const specificImportMatch = match.match(/import\s+(?:\{([^}]+)\}|\*\s+as\s+(\w+)|(\w+))\s+from/);
+      if (specificImportMatch) {
+        const placeholders: string[] = [];
+        
+        if (specificImportMatch[1]) {
+          // Named imports
+          const namedImports = specificImportMatch[1].split(',').map(s => s.trim());
+          namedImports.forEach(imp => {
+            const cleanName = imp.split(' as ')[0].trim();
+            placeholders.push(`const ${cleanName} = "placeholder" as any;`);
+          });
+        } else if (specificImportMatch[2]) {
+          // Namespace import
+          placeholders.push(`const ${specificImportMatch[2]} = {} as any;`);
+        } else if (specificImportMatch[3]) {
+          // Default import
+          placeholders.push(`const ${specificImportMatch[3]} = "placeholder" as any;`);
+        }
+        
+        return commentedImport + '\n' + placeholders.join('\n');
+      }
+      
+      return commentedImport;
+    });
+    
+    return result;
+  }
+
+  private extractImportsOnly(sourceCode: string, filePath: string): void {
+    // Extract imports from files where we couldn't load the module
+    // but still want to capture external type imports for the generated file
+    if (sourceCode.includes('@model')) {
+      const imports = this.extractImports(sourceCode, filePath);
+      if (imports.length > 0) {
+        // Mark these imports with their origin file path for proper resolution
+        const importsWithOrigin = imports.map(imp => ({ ...imp, originFilePath: filePath }));
+        this.orphanedImports.push(...importsWithOrigin);
+        console.log(`Extracted ${imports.length} import(s) from ${path.basename(filePath)} (module load failed)`);
+      }
     }
   }
 
@@ -142,7 +285,7 @@ class ModelTypeGenerator {
     );
   }
 
-  private extractModelInfo(ModelClass: any, className: string, sourceCode?: string): ModelInfo | null {
+  private extractModelInfo(ModelClass: any, className: string, sourceCode?: string, filePath?: string): ModelInfo | null {
     try {
       const schema = ModelClass.schema;
       const fields: FieldInfo[] = [];
@@ -156,11 +299,118 @@ class ModelTypeGenerator {
         }
       }
 
-      return { name: className, fields, sourceCode };
+      // Extract imports from source code
+      const imports = sourceCode ? this.extractImports(sourceCode, filePath) : [];
+
+      return { name: className, fields, sourceCode, filePath, imports };
     } catch (error) {
       console.warn(`Warning: Could not extract model info for ${className}:`, error);
       return null;
     }
+  }
+
+  private extractImports(sourceCode: string, filePath?: string): ImportInfo[] {
+    const imports: ImportInfo[] = [];
+    
+    // Extract all import statements as raw strings, preserving original syntax
+    const importPattern = /^(\s*import\s+[^;]+\s+from\s*['"][^'"]+['"]\s*;?\s*)$/gm;
+    let match;
+    
+    while ((match = importPattern.exec(sourceCode)) !== null) {
+      const fullImportStatement = match[1].trim();
+      
+      // Parse the import to extract module path and imported types
+      const moduleMatch = fullImportStatement.match(/from\s*['"]([^'"]+)['"]/);
+      if (!moduleMatch) continue;
+      
+      const modulePath = moduleMatch[1];
+      
+      // Extract imported types for filtering
+      const importedTypes: string[] = [];
+      
+      // Named imports: { Type1, Type2 }
+      const namedMatch = fullImportStatement.match(/import\s*\{\s*([^}]+)\s*\}/);
+      if (namedMatch) {
+        const namedImports = namedMatch[1].split(',').map(item => {
+          const trimmed = item.trim();
+          // Handle alias: 'Type as Alias'
+          return trimmed.includes(' as ') ? trimmed.split(' as ')[1].trim() : trimmed;
+        });
+        importedTypes.push(...namedImports);
+      }
+      
+      // Default import: import Type from
+      const defaultMatch = fullImportStatement.match(/import\s+(\w+)\s+from/);
+      if (defaultMatch && !namedMatch && !fullImportStatement.includes('* as')) {
+        importedTypes.push(defaultMatch[1]);
+      }
+      
+      // Namespace import: import * as Namespace
+      const namespaceMatch = fullImportStatement.match(/import\s*\*\s*as\s+(\w+)/);
+      if (namespaceMatch) {
+        importedTypes.push(namespaceMatch[1]);
+      }
+      
+      imports.push({
+        modulePath,
+        importedTypes,
+        isDefault: !!defaultMatch && !namedMatch && !namespaceMatch,
+        alias: namespaceMatch ? namespaceMatch[1] : undefined,
+        originalStatement: fullImportStatement // Store the original import statement
+      });
+    }
+
+    return this.filterRelevantImports(imports, filePath);
+  }
+
+  private filterRelevantImports(imports: ImportInfo[], filePath?: string): ImportInfo[] {
+    return imports.filter(importInfo => {
+      // Skip imports from the verve library itself
+      if (importInfo.modulePath === 'verve' || 
+          importInfo.modulePath.includes('../../../src') || 
+          importInfo.modulePath.startsWith('../src')) {
+        return false;
+      }
+
+      // Skip utility functions and non-type imports
+      const filteredTypes = importInfo.importedTypes.filter(typeName => {
+        const lowerName = typeName.toLowerCase();
+        if (lowerName.includes('date') && !typeName.match(/^[A-Z]/)) {
+          return false; // Skip utility functions like nowDate
+        }
+        
+        // Include types that start with uppercase (likely types/enums/interfaces)
+        return /^[A-Z]/.test(typeName);
+      });
+
+      // Only include this import if it has remaining types after filtering
+      if (filteredTypes.length === 0) {
+        return false;
+      }
+      
+      // Update the import with filtered types, but preserve original statement
+      importInfo.importedTypes = filteredTypes;
+
+      // Include if it's from type-related paths or has uppercase types (enums, interfaces, etc.)
+      const isTypeRelatedPath = importInfo.modulePath.includes('/enums/') || 
+                               importInfo.modulePath.includes('/types/') ||
+                               importInfo.modulePath.includes('/interfaces/') ||
+                               path.basename(importInfo.modulePath, path.extname(importInfo.modulePath)) === 'types';
+      
+      return isTypeRelatedPath || filteredTypes.length > 0;
+    });
+  }
+
+  private resolveImportPath(importPath: string, fromFile: string, toFile: string): string {
+    // If it's already a relative path, resolve it relative to fromFile and then make it relative to toFile
+    if (importPath.startsWith('.')) {
+      const absoluteImportPath = path.resolve(path.dirname(fromFile), importPath);
+      const relativeToTarget = path.relative(path.dirname(toFile), absoluteImportPath);
+      return relativeToTarget.startsWith('.') ? relativeToTarget : `./${relativeToTarget}`;
+    }
+    
+    // For absolute module paths (like 'lodash'), return as-is
+    return importPath;
   }
 
   private getTargetTypeFromBuilder(fieldBuilder: any): string | null {
@@ -294,8 +544,14 @@ class ModelTypeGenerator {
       
       if (match) {
         const enumName = match[1];
-        // Check if the enum is imported or defined in the same file
-        if (sourceCode.includes(`enum ${enumName}`) || sourceCode.includes(`import.*${enumName}`)) {
+        
+        // Check if the enum is defined in the same file
+        if (sourceCode.includes(`enum ${enumName}`)) {
+          return enumName;
+        }
+        
+        // Check for various import patterns and return the enum name if found
+        if (this.isEnumImported(enumName, sourceCode)) {
           return enumName;
         }
       }
@@ -304,6 +560,49 @@ class ModelTypeGenerator {
     } catch (error) {
       return null;
     }
+  }
+
+  private isEnumImported(enumName: string, sourceCode: string): boolean {
+    // Check for various import patterns:
+    // 1. Named import: import { EnumName } from '...'
+    // 2. Named import with alias: import { SomeEnum as EnumName } from '...'
+    // 3. Default import: import EnumName from '...'
+    // 4. Namespace import: import * as Namespace from '...' (then used as Namespace.EnumName)
+    
+    const importPatterns = [
+      // Named import: import { EnumName } from '...'
+      new RegExp(`import\\s*\\{[^}]*\\b${enumName}\\b[^}]*\\}\\s*from\\s*['"][^'"]+['"]`, 'i'),
+      // Named import with alias: import { SomeEnum as EnumName } from '...'
+      new RegExp(`import\\s*\\{[^}]*\\w+\\s+as\\s+${enumName}\\b[^}]*\\}\\s*from\\s*['"][^'"]+['"]`, 'i'),
+      // Default import: import EnumName from '...'
+      new RegExp(`import\\s+${enumName}\\s+from\\s*['"][^'"]+['"]`, 'i'),
+      // Check if it's part of a namespace import (less common but possible)
+      new RegExp(`import\\s*\\*\\s*as\\s+\\w+\\s+from\\s*['"][^'"]+['"].*${enumName}`, 'i')
+    ];
+    
+    for (const importPattern of importPatterns) {
+      if (importPattern.test(sourceCode)) {
+        return true;
+      }
+    }
+    
+    // Enhanced fallback: check for any import that includes the enum name
+    // This handles cases where the import might be formatted differently or spread across multiple lines
+    const generalImportPattern = new RegExp(`import[^;]*${enumName}[^;]*from\\s*['"][^'"]*['"]`, 'i');
+    if (generalImportPattern.test(sourceCode)) {
+      return true;
+    }
+    
+    // Check for multiline imports (common in prettier-formatted code)
+    const multilineImportPattern = new RegExp(
+      `import\\s*\\{[^}]*${enumName}[^}]*\\}\\s*from[^;]*;`,
+      'gs' // global and dotall flags to match across lines
+    );
+    if (multilineImportPattern.test(sourceCode)) {
+      return true;
+    }
+    
+    return false;
   }
 
   private extractRecordGenericFromSource(fieldName: string, sourceCode?: string, className?: string): string | null {
@@ -366,76 +665,112 @@ class ModelTypeGenerator {
     return enumDefinitions;
   }
 
-  private async writeTypesFile(): Promise<void> {
+  private collectImports(typesFile: string): ImportInfo[] {
+    const importMap = new Map<string, ImportInfo>();
+    
+    // Get all model names to exclude them from imports
+    const modelNames = new Set(this.models.map(model => model.name));
+    
+    // Process imports from successfully loaded models
+    for (const model of this.models) {
+      if (model.imports && model.filePath) {
+        for (const importInfo of model.imports) {
+          this.addImportToMap(importInfo, model.filePath, typesFile, modelNames, importMap);
+        }
+      }
+    }
+    
+    // Process orphaned imports from failed model loads
+    for (const importInfo of this.orphanedImports) {
+      // Use the stored origin file path for proper import resolution
+      const filePath = importInfo.originFilePath || this.rootPath;
+      this.addImportToMap(importInfo, filePath, typesFile, modelNames, importMap);
+    }
+    
+    return Array.from(importMap.values());
+  }
+
+  private addImportToMap(
+    importInfo: ImportInfo, 
+    fromFilePath: string, 
+    typesFile: string, 
+    modelNames: Set<string>, 
+    importMap: Map<string, ImportInfo>
+  ): void {
+    // Filter out model names from imported types
+    const filteredTypes = importInfo.importedTypes.filter(typeName => !modelNames.has(typeName));
+    
+    // Skip this import if no types remain after filtering
+    if (filteredTypes.length === 0) {
+      return;
+    }
+    
+    // Resolve the import path relative to the generated types file
+    const resolvedPath = this.resolveImportPath(importInfo.modulePath, fromFilePath, typesFile);
+    
+    // Create a unique key for deduplication
+    const key = `${resolvedPath}:${importInfo.isDefault ? 'default' : 'named'}`;
+    
+    const filteredImportInfo = { ...importInfo, importedTypes: filteredTypes, modulePath: resolvedPath };
+    
+    if (importMap.has(key)) {
+      // Merge imported types
+      const existing = importMap.get(key)!;
+      const mergedTypes = [...new Set([...existing.importedTypes, ...filteredImportInfo.importedTypes])];
+      importMap.set(key, { ...existing, importedTypes: mergedTypes });
+    } else {
+      importMap.set(key, filteredImportInfo);
+    }
+  }
+
+  private async writeTypesFile(): Promise<string> {
     const typesDir = path.join(this.rootPath, '.verve');
     const typesFile = path.join(typesDir, 'models.d.ts');
 
     // Ensure directory exists
     await fs.promises.mkdir(typesDir, { recursive: true });
 
-    let content = `export interface BoundField<T> {
-  get(): T;
-  unsafeGet(): T | undefined;
-  set(value: T): void;
-  unset(): void;
-  is(value: T): boolean;
-  isEmpty(): boolean;
-  isPresent(): boolean;
-  isValid(): boolean;
-  generate(): void;
-  compute(): T;
-  validate(): VerveErrorList;
-  isReadable(): boolean;
-  isWritable(): boolean;
-}\n\nexport enum ErrorCode {
-  // Authorization errors
-  UNAUTHORIZED_METHOD_CALL = 'UNAUTHORIZED_METHOD_CALL',
-  
-  // Model instantiation errors
-  DIRECT_INSTANTIATION_NOT_ALLOWED = 'DIRECT_INSTANTIATION_NOT_ALLOWED',
-  
-  // Field access errors
-  FIELD_NOT_READABLE = 'FIELD_NOT_READABLE',
-  FIELD_NOT_INITIALIZED = 'FIELD_NOT_INITIALIZED',
-  FIELD_NOT_WRITABLE = 'FIELD_NOT_WRITABLE',
-  FIELD_IS_COMPUTED = 'FIELD_IS_COMPUTED',
-  FIELD_SET_ERROR = 'FIELD_SET_ERROR',
-  FIELD_UNSET_ERROR = 'FIELD_UNSET_ERROR',
-  FIELD_NO_GENERATOR = 'FIELD_NO_GENERATOR',
-  FIELD_ALREADY_GENERATED = 'FIELD_ALREADY_GENERATED',
-  FIELD_CANNOT_GENERATE_EXISTING = 'FIELD_CANNOT_GENERATE_EXISTING',
-  FIELD_NO_COMPUTE = 'FIELD_NO_COMPUTE',
-  
-  // Field validator errors
-  FIELD_NOT_NULLABLE = 'FIELD_NOT_NULLABLE',
-  FIELD_VALIDATOR_FAILED = 'FIELD_VALIDATOR_FAILED',
-  FIELD_VALIDATORS_FAILED = 'FIELD_VALIDATORS_FAILED',
+    let content = `// ------------------------------------------------------
+// THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)
+// ------------------------------------------------------
+`;
 
-  // Association errors
-  ASSOCIATION_INCOMPLETE = 'ASSOCIATION_INCOMPLETE',
-  ASSOCIATION_INVALID = 'ASSOCIATION_INVALID',
-  ASSOCIATION_VALIDATOR_NOT_FOUND = 'ASSOCIATION_VALIDATOR_NOT_FOUND',
-  
-  // Model errors
-  ID_FIELD_CANNOT_BE_EXCLUDED = 'ID_FIELD_CANNOT_BE_EXCLUDED',
-  MODEL_FIELD_VALIDATION_FAILED = 'MODEL_FIELD_VALIDATION_FAILED',
-  
-  // Context errors
-  ASYNC_LOCAL_STORAGE_REQUIRES_NODEJS = 'ASYNC_LOCAL_STORAGE_REQUIRES_NODEJS',
-  CONTEXT_USE_RUN_METHOD = 'CONTEXT_USE_RUN_METHOD',
-  CONTEXT_AUTO_RESET = 'CONTEXT_AUTO_RESET',
-  ASYNC_LOCAL_STORAGE_SETUP_FAILED = 'ASYNC_LOCAL_STORAGE_SETUP_FAILED',
-  CONTEXT_ADAPTER_REQUIRED = 'CONTEXT_ADAPTER_REQUIRED',
-};\n\nexport interface VerveErrorList {
-  count(): number;
-  add(code: ErrorCode, ...args: any[]): void;
-  merge(errors: VerveErrorList): void;
-  contains(code: ErrorCode): boolean;
-  isEmpty(): boolean;
-  isPresent(): boolean;
-  toErrorMessages(): string[];
-  toErrorMessagesWithCode(): string[];
-}\n\n`;
+    // Collect and deduplicate imports
+    const allImports = this.collectImports(typesFile);
+    
+    // Add import statements using original syntax
+    if (allImports.length > 0) {
+      for (const importInfo of allImports) {
+        if (importInfo.originalStatement) {
+          // Use the original import statement with resolved path
+          const originalWithResolvedPath = importInfo.originalStatement.replace(
+            /from\s*['"][^'"]+['"]/,
+            `from '${importInfo.modulePath}'`
+          );
+          // Ensure we don't add double semicolons
+          const cleanStatement = originalWithResolvedPath.endsWith(';') 
+            ? originalWithResolvedPath 
+            : originalWithResolvedPath + ';';
+          content += cleanStatement + '\n';
+        } else {
+          // Fallback to reconstructed import (shouldn't happen with new logic)
+          if (importInfo.isDefault) {
+            content += `import ${importInfo.importedTypes[0]} from '${importInfo.modulePath}';\n`;
+          } else if (importInfo.alias) {
+            content += `import * as ${importInfo.alias} from '${importInfo.modulePath}';\n`;
+          } else {
+            content += `import { ${importInfo.importedTypes.join(', ')} } from '${importInfo.modulePath}';\n`;
+          }
+        }
+      }
+      content += '\n';
+    }
+
+    for (const model of this.models) {
+      content += `export type ${model.name} = VerveModels['${model.name}'];\n`;
+    }
+    
+    content += '\n';
     
     // Extract and include enum definitions
     const enumDefinitions = this.extractEnumDefinitions();
@@ -448,19 +783,10 @@ class ModelTypeGenerator {
 
     for (const model of this.models) {
       content += `    ${model.name}: {\n`;
-      content += `      // Fields\n`;
       
       // Generate field types
       for (const field of model.fields) {
         content += `      ${field.name}: ${field.type};\n`;
-      }
-
-      content += `\n      // Field instances\n`;
-      
-      // Generate field instance types
-      for (const field of model.fields) {
-        // Use the actual field value type for BoundField generic
-        content += `      $${field.name}: BoundField<${field.type}>;\n`;
       }
 
       content += `    };\n`;
@@ -473,6 +799,8 @@ class ModelTypeGenerator {
 
     await fs.promises.writeFile(typesFile, content, 'utf-8');
     console.log(`Generated types written to: ${typesFile}`);
+
+    return content;
   }
 
   private async updateModelClasses(): Promise<void> {

@@ -1,8 +1,6 @@
-import { model } from "../../decorators/model";
-import { id, text, record, number, date } from "../../../field";
-import { Model } from "../Model";
-
-export const dateNow = new Date();
+import { Model, model, id, text, record, number, date } from "../../../src";
+import { nowDate } from "../utils/now";
+import { Post } from "./Post";
 
 // Example with validation that depends on other fields
 // Test: We need to make sure that the validation works even with such circular rules (plus when readable is false for one)
@@ -10,7 +8,7 @@ export const dateNow = new Date();
 // Finally, we prevent fields from being readable/writable as a last step
 
 @model({
-  id: id().generate(() => `asset-id-${dateNow.getTime()}`),
+  id: id().generate(() => `asset-id-${nowDate.getTime()}`),
   name: text().validate.lazy(value => !value.includes('.')),
   type: text()
     .validate((value, model) => {
@@ -35,13 +33,12 @@ export const dateNow = new Date();
     }
     return false;
   }),
-  url: text().compute<'Asset'>((model) => `https://some-storage-url/${model.$id.get()}/${model.$name.get()}.${model.$extension.get()}`),
   hash: text().generate.lazy(() => 'random-hash'),
-  post: record('Post').nullable.associate('id').to('post.id'),
-  createdAt: date().generate(() => dateNow),
+  post: record<Post>().nullable,
+  createdAt: date().generate(() => nowDate),
 })
 export class Asset extends Model.Typed<'Asset'>() {
   getURL() {
-    return `https://some-storage-url/${this.$id.get()}/${this.$name.get()}.${this.$extension.get()}`;
+    return `https://some-storage-url/${this.id}/${this.name}.${this.extension}`;
   }
 }

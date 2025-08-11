@@ -4,16 +4,19 @@ export default defineConfig({
   test: {
     globals: true,
     environment: 'node',
-    setupFiles: [],
-    include: ['src/**/*.test.ts'],
+    setupFiles: ['./test/setup/global.ts'],
+    include: ['test/**/*.test.ts'],
     exclude: ['node_modules', 'dist'],
+    typecheck: {
+      tsconfig: 'tsconfig.test.json'
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],
       exclude: [
         'node_modules/',
         'dist/',
-        'tests/',
+        'test/',
         '**/*.d.ts',
         'src/index.ts'
       ]
@@ -21,7 +24,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': './src'
+      '@': './src',
+      '@enums/*': './test/setup/enums/*'
     }
   }
 }); 

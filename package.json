@@ -1,6 +1,6 @@
 {
   "name": "@martinmilo/verve",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "TypeScript domain modeling library with field-level authorization, business rule validation, and context-aware access control",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -27,10 +27,12 @@
   "scripts": {
     "build": "tsc && npm run build:cli",
     "build:cli": "chmod +x dist/scripts/generate-types.js",
-    "test": "vitest",
+    "test": "vitest run",
     "test:watch": "vitest --watch",
     "dev": "ts-node examples/basic-usage.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --project tsconfig.test.json --noEmit",
+    "typecheck:src": "tsc --noEmit",
+    "typecheck:test": "tsc --project tsconfig.test.json --noEmit",
     "prepublishOnly": "npm run build && npm run test",
     "postinstall": "node -e \"console.log('\\n🎉 Verve installed! Build secure domain models with field-level authorization.\\n')\""
   },

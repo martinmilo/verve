@@ -1,8 +1,6 @@
 import type { ModelInstance, ModelSchema } from "../core/types";
 
 import { BOUND_FIELD_METADATA, BOUND_FIELD_OPTIONS, MODEL_FIELDS } from "../../constants";
-import { AssociationRegistry } from "../../association";
-import { makeFieldInstanceKey } from "../core/utils";
 import { ErrorCode, VerveError, VerveErrorList } from "../../errors";
 import { BoundField, Field } from "../../field";
 import { Model } from "../core/Model";
@@ -15,8 +13,7 @@ export class ValidationInitializer {
     let modelName;
 
     for (const fieldName of Object.keys(schema)) {
-      const instanceKey = makeFieldInstanceKey(fieldName);
-      const field = fields[instanceKey];
+      const field = fields[fieldName];
       const value = field.unsafeGet();
 
       if (!modelName) {
@@ -29,7 +26,7 @@ export class ValidationInitializer {
       }
 
       // Validate field value
-      errors.merge(validateField(model, fieldName, field));
+      errors.merge(validateField(fieldName, field));
 
       // Set writable and enumerable to true to allow serialization
       Object.defineProperty(model, fieldName, {
@@ -49,7 +46,7 @@ export class ValidationInitializer {
   }
 }
 
-function validateField(model: Model<any>, fieldName: string, fieldInstance: BoundField<any>): VerveErrorList {
+function validateField(fieldName: string, fieldInstance: BoundField<any>): VerveErrorList {
   const errors = VerveErrorList.new();
 
   const fieldMetadata = fieldInstance[BOUND_FIELD_METADATA];
@@ -69,11 +66,6 @@ function validateField(model: Model<any>, fieldName: string, fieldInstance: Boun
     });
   }
 
-  // Validate associations
-  if (fieldOptions.associate) {
-    errors.merge(validateAssociation(model, fieldMetadata.model, fieldName, fieldValue));
-  }
-
   // Validate the field value based on the provided eager validators
   const eagerValidators = Field.getEagerValidators(fieldOptions);
 
@@ -86,39 +78,6 @@ function validateField(model: Model<any>, fieldName: string, fieldInstance: Boun
         field: fieldName,
         validator: validatorName,
         model: fieldMetadata.model,
-      });
-    }
-  }
-
-  return errors;
-}
-
-function validateAssociation<T>(model: Model<any>, modelName: string, fieldName: string, fieldValue: T): VerveErrorList {
-  const errors = VerveErrorList.new();
-
-  const isLoaded = (value: any) => value.id !== undefined && Object.keys(value).length > 1;
-
-  const validator = AssociationRegistry.getValidator(modelName, fieldName);
-  if (!validator) {
-    errors.add(ErrorCode.ASSOCIATION_VALIDATOR_NOT_FOUND, {
-      field: fieldName,
-      model: modelName,
-    });
-    return errors;
-  }
-
-  const values = Array.isArray(fieldValue) ? fieldValue : [fieldValue];
-
-  for (const value of values) {
-    if (!isLoaded(value)) {
-      continue;
-    }
-
-    if (!validator(model, value)) {
-      errors.add(ErrorCode.ASSOCIATION_INVALID, {
-        field: fieldName,
-        model: modelName,
-        value: JSON.stringify(value),
       });
     }
   }

@@ -10,6 +10,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   // Field access errors
   [ErrorCode.FIELD_NOT_READABLE]: "Field '{{field}}' is not readable on model '{{model}}'",
   [ErrorCode.FIELD_NOT_INITIALIZED]: "Field '{{field}}' is not initialized on model '{{model}}'",
+  [ErrorCode.FIELD_TYPE_MISMATCH]: "Field '{{field}}' type mismatch on model '{{model}}'",
   [ErrorCode.FIELD_NOT_WRITABLE]: "Field '{{field}}' is not writable on model '{{model}}'",
   [ErrorCode.FIELD_IS_COMPUTED]: "Field '{{field}}' is computed and cannot be overwritten on model '{{model}}'",
   [ErrorCode.FIELD_SET_ERROR]: "Error setting field '{{field}}' on model '{{model}}'",
@@ -18,6 +19,7 @@ export const errorMessages: Record<ErrorCode, string> = {
   [ErrorCode.FIELD_ALREADY_GENERATED]: "Field '{{field}}' has already been generated on model '{{model}}'",
   [ErrorCode.FIELD_CANNOT_GENERATE_EXISTING]: "Field '{{field}}' on existing model cannot be generated on model '{{model}}'",
   [ErrorCode.FIELD_NO_COMPUTE]: "Field '{{field}}' has no compute on model '{{model}}'",
+  [ErrorCode.FIELD_COMPUTE_NOT_MUTABLE]: "Field '{{field}}' is computed and cannot be mutated on model '{{model}}'",
   
   // Field validator errors
   [ErrorCode.FIELD_NOT_NULLABLE]: "Field '{{field}}' is not nullable on model '{{model}}'",

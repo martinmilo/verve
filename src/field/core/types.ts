@@ -13,7 +13,6 @@ export interface FieldOptions {
   compute?: FieldCompute | LazyFieldCompute;
   generator?: FieldGenerator | LazyFieldGenerator;
   validators?: Array<FieldValidator | LazyFieldValidator>;
-  associate?: { from: string; to: string; };
 }
 
 export type FieldClass<T> = {
@@ -32,6 +31,6 @@ export type FieldGenerator<T = any> = () => T;
 
 export type LazyFieldGenerator<T = any> = FieldGenerator<T> & { __lazy: true };
 
-export type FieldCompute<T = any, M extends keyof VerveModels = any> = (model: VerveModels[M]) => T;
+export type FieldCompute<T = any, M = any> = (model: M) => T;
 
-export type LazyFieldCompute<T = any, M extends keyof VerveModels = any> = FieldCompute<T, M> & { __lazy: true };
+export type LazyFieldCompute<T = any, M = any> = FieldCompute<T, M> & { __lazy: true };

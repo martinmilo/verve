@@ -1,11 +1,12 @@
 import type { FieldMetadata, FieldOptions, FieldValidator, FieldGenerator } from "./types";
 import type { ModelInstance } from "../../model/core/types";
 
-import { MODEL_CHANGE_LOG, MODEL_STATE } from "../../constants";
+import { MODEL_CHANGE_LOG, MODEL_PROXY, MODEL_STATE } from "../../constants";
 import { isArrayEqual, isObjectEqual } from "./utils";
 import { isEagerFieldGenerator } from "../utils/generator";
 import { isEagerFieldValidator } from "../utils/validator";
 import { ErrorCode, VerveError, VerveErrorList } from "../../errors";
+import { FieldType } from "./FieldType";
 
 export abstract class Field<T> {
   constructor(public metadata: FieldMetadata, public options: FieldOptions = {}) {}
@@ -18,11 +19,11 @@ export abstract class Field<T> {
   }
 
   static getGlobalValidators(): FieldValidator[] {
-    return this.globalValidatorsMap.get(this) ?? [];
+    return Field.globalValidatorsMap.get(this) ?? [];
   }
 
   static getGlobalGenerator(): FieldGenerator | undefined {
-    return this.globalGeneratorsMap.get(this) ?? undefined;
+    return Field.globalGeneratorsMap.get(this) ?? undefined;
   }
 
   static getEagerGenerator(options: FieldOptions): FieldGenerator | undefined {
@@ -47,7 +48,7 @@ export abstract class Field<T> {
     if (value === undefined) {
       throw new VerveError(ErrorCode.FIELD_NOT_INITIALIZED, { field: key, model: this.metadata.model });
     }
-
+    
     const errors = this.validate(model, key);
     if (errors.isPresent()) {
       throw new VerveError(ErrorCode.FIELD_VALIDATORS_FAILED, {
@@ -56,24 +57,27 @@ export abstract class Field<T> {
         errors: errors.toErrorMessagesWithCode().join('\n'),
       });
     }
-
+    
     return value;
   }
-
+  
   unsafeGet(model: ModelInstance, key: string): T | undefined {
     const state = model[MODEL_STATE]();
     return state[key];
   }
-
+  
   set(model: ModelInstance, key: string, value: T): void {
     const state = model[MODEL_STATE]();
+
+    FieldType.validate(this, value);
 
     if (!this.isWritable(model, key)) {
       throw new VerveError(ErrorCode.FIELD_NOT_WRITABLE, { field: key, model: this.metadata.model });
     }
 
-    if (value === null && !this.options.nullable) {
-      throw new VerveError(ErrorCode.FIELD_NOT_NULLABLE, { field: key, model: this.metadata.model });
+    if (value === undefined) {
+      this.unset(model, key);
+      return;
     }
 
     try {
@@ -83,9 +87,7 @@ export abstract class Field<T> {
         previousValue: state[key],
         timestamp: new Date(),
       });
-  
       state[key] = value;
-      Object.assign(model, { [key]: value });
     } catch (error) {
       throw new VerveError(ErrorCode.FIELD_SET_ERROR, {
         field: key,
@@ -184,8 +186,8 @@ export abstract class Field<T> {
     if (!compute) {
       throw new VerveError(ErrorCode.FIELD_NO_COMPUTE, { field: key, model: this.metadata.model });
     }
-    this.set(model, key, compute(model));
-    return this.get(model, key);
+    const proxy = model[MODEL_PROXY]();
+    return compute(proxy);
   }
 
   validate(model: ModelInstance, key: string): VerveErrorList {
@@ -214,26 +216,20 @@ export abstract class Field<T> {
 
   isReadable(model: ModelInstance, key: string): boolean {
     const value = this.unsafeGet(model, key);
+    const proxy = model[MODEL_PROXY]();
 
     if (typeof this.options.readable === 'function') {
-      try {
-        return this.options.readable(model.getContext(), model, value);
-      } catch (_) {
-        return false;
-      }
+      return this.options.readable(model.getContext(), proxy, value);
     }
     return this.options.readable ?? true;
   }
   
   isWritable(model: ModelInstance, key: string): boolean {
     const value = this.unsafeGet(model, key);
-    
+    const proxy = model[MODEL_PROXY]();
+
     if (typeof this.options.writable === 'function') {
-      try {
-        return this.options.writable(model.getContext(), model, value);
-      } catch (_) {
-        return false;
-      }
+      return this.options.writable(model.getContext(), proxy, value);
     }
     return this.options.writable ?? true;
   }

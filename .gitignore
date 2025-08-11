@@ -56,6 +56,3 @@ pids/
 .npm
 .eslintcache
 .parcel-cache
-
-# Verve specific
-.verve/

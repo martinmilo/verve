@@ -1,7 +1,7 @@
-import type { ModelSchema, ModelChangeLog, ModelFields, ModelState, ModelConstructor, StripDollarProps } from './types';
+import type { ModelSchema, ModelChangeLog, ModelFields, ModelState, ModelConstructor, ModelKeys } from './types';
 
 import { createModelClass } from '../initializers/ModelInitializer';
-import { deepClone, makeFieldInstanceKey } from './utils';
+import { deepClone } from './utils';
 import { ErrorCode, VerveError, VerveErrorList } from '../../errors';
 import { IdField } from '../../field/fields/IdField';
 
@@ -10,6 +10,7 @@ import {
   MODEL_FIELDS,
   MODEL_INITIAL_STATE,
   MODEL_INITIALIZER,
+  MODEL_PROXY,
   MODEL_STATE,
 } from '../../constants';
 
@@ -17,6 +18,7 @@ export class Model<S extends ModelSchema | unknown = unknown> {
   static modelName: string;
   static schema: ModelSchema;
 
+  #proxy: Model<S> = this;
   #initializer: 'make' | 'from' = 'make';
 
   #fields: ModelFields<S> = {} as ModelFields<S>;
@@ -39,6 +41,13 @@ export class Model<S extends ModelSchema | unknown = unknown> {
       return;
     }
     this.#changeLog.push(change);
+  }
+
+  [MODEL_PROXY](proxyRef?: Model<S>): Model<S> {
+    if (proxyRef) {
+      this.#proxy = proxyRef;
+    }
+    return this.#proxy;
   }
 
   [MODEL_STATE](): ModelState<S> {
@@ -79,22 +88,69 @@ export class Model<S extends ModelSchema | unknown = unknown> {
     return [...this.#changeLog].reverse();
   }
 
-  validate(): VerveErrorList {
+  validate(keys?: ModelKeys<S>): VerveErrorList {
+    const keysArray = keys ? (Array.isArray(keys) ? keys : [keys]) : undefined;
     const errors = VerveErrorList.new();
 
     for (const field of Object.values(this[MODEL_FIELDS]())) {
+      if (keysArray && !keysArray.includes(field.metadata.name as keyof S)) {
+        continue;
+      }
       const fieldErrors = field.validate();
       errors.merge(fieldErrors);
     }
     return errors;
   }
 
-  only(keys: (keyof StripDollarProps<S>)[]): this {
-    const fieldKeysToKeep = keys.map(key => makeFieldInstanceKey(key as string));
+  generate(keys?: ModelKeys<S>): this {
+    const keysArray = keys ? (Array.isArray(keys) ? keys : [keys]) : undefined;
+    const fields = this[MODEL_FIELDS]();
+
+    for (const field of Object.values(fields)) {
+      if (keysArray && !keysArray.includes(field.metadata.name as keyof S)) {
+        continue;
+      }
+      // If the field has a generator and is not initialized, generate the value
+      if (field.options.generator && field.unsafeGet() === undefined) {
+        field.generate();
+      }
+    }
+    return this;
+  }
+
+  unsafeGet(key: keyof S): any {
+    const fields = this[MODEL_FIELDS]();
+    const field = fields[key as keyof ModelFields<S>];
+    return field.unsafeGet();
+  }
+
+  set(data: Partial<S>): this {
+    const fields = this[MODEL_FIELDS]();
+    for (const [key, value] of Object.entries(data)) {
+      // We do not allow setting undefined values
+      if (value === undefined) {
+        continue;
+      }
+      fields[key].set(value as any);
+    }
+    return this;
+  }
+
+  unset(keys: ModelKeys<S>): this {
+    const keysArray = Array.isArray(keys) ? keys : [keys];
+    const fields = this[MODEL_FIELDS]();
+    for (const key of keysArray) {
+      fields[key].unset();
+    }
+    return this;
+  }
+
+  only(keys: ModelKeys<S>): this {
+    const keysArray = Array.isArray(keys) ? keys : [keys];
     const fields = this[MODEL_FIELDS]();
 
     for (const [fieldName, field] of Object.entries(fields)) {
-      if (fieldKeysToKeep.includes(fieldName as `$${string}`)) {
+      if (keysArray.includes(fieldName as keyof S)) {
         continue;
       }
       if (field instanceof IdField) {
@@ -105,12 +161,12 @@ export class Model<S extends ModelSchema | unknown = unknown> {
     return this;
   }
 
-  except(keys: (keyof StripDollarProps<S>)[]): this {
-    const fieldKeysToExclude = keys.map(key => makeFieldInstanceKey(key as string));
+  except(keys: ModelKeys<S>): this {
+    const keysArray = Array.isArray(keys) ? keys : [keys];
     const fields = this[MODEL_FIELDS]();
 
     for (const [fieldName, field] of Object.entries(fields)) {
-      if (!fieldKeysToExclude.includes(fieldName as `$${string}`)) {
+      if (!keysArray.includes(fieldName as keyof S)) {
         continue;
       }
       if (field instanceof IdField) {
@@ -119,6 +175,66 @@ export class Model<S extends ModelSchema | unknown = unknown> {
       field.unset();
     }
     return this;
+  }
+
+  isValid(): boolean {
+    const keys = Object.keys(this) as (keyof S)[];
+    return this.hasValid(keys);
+  }
+  
+  hasValid(keys: ModelKeys<S>): boolean {
+    const keysArray = Array.isArray(keys) ? keys : [keys];
+    const fields = this[MODEL_FIELDS]();
+
+    for (const field of Object.values(fields)) {
+      if (!keysArray.includes(field.metadata.name as keyof S)) {
+        continue;
+      }
+      if (!field.isValid()) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  isEmpty(): boolean {
+    const keys = Object.keys(this) as (keyof S)[];
+    return this.hasEmpty(keys);
+  }
+  
+  hasEmpty(keys: ModelKeys<S>): boolean {
+    const keysArray = Array.isArray(keys) ? keys : [keys];
+    const fields = this[MODEL_FIELDS]();
+
+    for (const field of Object.values(fields)) {
+      if (!keysArray.includes(field.metadata.name as keyof S)) {
+        continue;
+      }
+      if (!field.isEmpty()) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  isPresent(): boolean {
+    const keys = Object.keys(this) as (keyof S)[];
+    return this.hasPresent(keys);
+  }
+  
+  hasPresent(keys: ModelKeys<S>): boolean {
+    const keysArray = Array.isArray(keys) ? keys : [keys];
+    const fields = this[MODEL_FIELDS]();
+
+    for (const field of Object.values(fields)) {
+      if (!keysArray.includes(field.metadata.name as keyof S)) {
+        continue;
+      }
+      if (!field.isPresent()) {
+        return false;
+      }
+    }
+    return true;
   }
 
   static Untyped() {

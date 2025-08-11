@@ -24,7 +24,7 @@ export function WithAuthorization<TBase extends Constructor>(Base: TBase) {
         Object.defineProperty(this, name, {
           value: (...args: any[]) => {
             const context = (this as any).getContext?.() ?? Context.get();
-            if (condition?.(context, this) === false) {
+            if (!condition?.(context, this)) {
               throw new VerveError(ErrorCode.UNAUTHORIZED_METHOD_CALL, { method: String(name) });
             }
             return original.apply(this, args);

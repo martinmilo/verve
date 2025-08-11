@@ -7,14 +7,12 @@ import { WithReadable, type WithReadableFunc } from "../builder/mixins/WithReada
 import { WithWritable, type WithWritableFunc } from "../builder/mixins/WithWritable";
 import { WithDefault, type WithDefaultFunc } from "../builder/mixins/WithDefault";
 import { WithValidate, type WithValidateFunc } from "../builder/mixins/WithValidate";
-import { WithCompute, type WithComputeFunc } from "../builder/mixins/WithCompute";
 
 export interface OptionFieldBuilder<T> extends FieldBuilder<T> {
   nullable: WithNullableProp<this>;
   readable: WithReadableFunc<this>;
   writable: WithWritableFunc<this>;
   default: WithDefaultFunc<this, T>;
-  compute: WithComputeFunc<this>;
   validate: WithValidateFunc<this>;
 }
 
@@ -23,7 +21,6 @@ const EnhancedBuilder = composeFieldBuilder(FieldBuilder<string>, [
   WithReadable,
   WithWritable,
   WithDefault,
-  WithCompute,
   WithValidate,
 ]);
 

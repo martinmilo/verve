@@ -4,7 +4,7 @@ import { WithContext } from "../../context";
 import { WithAuthorization } from "../../authorization";
 import { FieldInitializer } from "../initializers/FieldInitializer";
 import { ValidationInitializer } from "./ValidationInitializer";
-import { getBaseModelMethods, makeFieldInstanceKey } from "../core/utils";
+import { getBaseModelMethods } from "../core/utils";
 import { ValueInitializer } from "./ValueInitializer";
 import { ErrorCode, VerveError } from "../../errors";
 import { BoundField, Field } from "../../field";
@@ -16,6 +16,7 @@ import {
   MODEL_FIELDS,
   MODEL_INITIAL_STATE,
   MODEL_INITIALIZER,
+  MODEL_PROXY,
   MODEL_STATE
 } from "../../constants";
 
@@ -36,14 +37,19 @@ export function createModelClass<S = any>() {
     ) {
       const instance = new this(MODEL_CONSTRUCTOR) as InstanceType<C>;
       instance[MODEL_INITIALIZER]('make');
-
+      
       // 1. Initialize field instances on the model
       FieldInitializer.initialize(instance, this.schema);
       // 2. Initialize field values on the model (i.e. save on model state and as object property)
       ValueInitializer.initialize(instance, data, { isHydrating: false });
-      // 3. Validate field values
+      
+      // 3. Create fields proxy
+      const proxy = createFieldsProxy(instance, this.schema);
+      instance[MODEL_PROXY](proxy);
+      
+      // 4. Validate field values
       ValidationInitializer.initialize(instance, this.schema);
-      // 4. Record initial changes
+      // 5. Record initial changes
       for (const key in instance[MODEL_STATE]()) {
         instance[MODEL_CHANGE_LOG]({
           field: key,
@@ -52,8 +58,7 @@ export function createModelClass<S = any>() {
           timestamp: new Date(),
         });
       }
-      // 5. Create fields proxy
-      return createFieldsProxy(instance, this.schema);
+      return proxy;
     }
 
     static from<C extends new (...args: any[]) => any>(
@@ -67,12 +72,16 @@ export function createModelClass<S = any>() {
       FieldInitializer.initialize(instance, this.schema);
       // 2. Initialize field values on the model (i.e. save on model state and as object property)
       ValueInitializer.initialize(instance, data, { isHydrating: true });
-      // 3. Validate field values
+      
+      // 3. Create fields proxy
+      const proxy = createFieldsProxy(instance, this.schema);
+      instance[MODEL_PROXY](proxy);
+      
+      // 4. Validate field values
       ValidationInitializer.initialize(instance, this.schema);
-      // 4. Set initial state (we need to make a copy of the state to avoid mutating the original state)
+      // 5. Set initial state (we need to make a copy of the state to avoid mutating the original state)
       instance[MODEL_INITIAL_STATE]({ ...instance[MODEL_STATE]() });
-      // 5. Create fields proxy
-      return createFieldsProxy(instance, this.schema);
+      return proxy;
     }
   } as unknown as ModelConstructor<S>;
 }
@@ -88,18 +97,13 @@ function createFieldsProxy<S extends ModelSchema>(instance: Model<S>, schema: S)
   return new Proxy(instance, {
     get(target, key: string, receiver) {
       if (Object.prototype.hasOwnProperty.call(schema, key)) {
-        const instanceKey = makeFieldInstanceKey(key);
-        const field = fields[instanceKey];
+        const field = fields[key];
 
         if (field.options.compute) {
           return field.compute();
         }
 
-        if (!field.isReadable()) {
-          throw new VerveError(ErrorCode.FIELD_NOT_READABLE, { field: key, model: field.metadata.model });
-        }
-
-        const fieldValue = field.unsafeGet();
+        const fieldValue = field.get();
 
         // Wrap objects and arrays in nested proxies to track and log state changes
         if (isArrayOrObject(fieldValue)) {
@@ -125,8 +129,7 @@ function createFieldsProxy<S extends ModelSchema>(instance: Model<S>, schema: S)
 
     set(target, key: string, value: any, receiver) {
       if (Object.prototype.hasOwnProperty.call(schema, key)) {
-        const instanceKey = makeFieldInstanceKey(key);
-        const field = fields[instanceKey];
+        const field = fields[key];
 
         if (field.options.compute) {
           throw new VerveError(ErrorCode.FIELD_IS_COMPUTED, { field: key, model: field.metadata.model });

@@ -7,14 +7,12 @@ import { WithReadable, type WithReadableFunc } from "../builder/mixins/WithReada
 import { WithWritable, type WithWritableFunc } from "../builder/mixins/WithWritable";
 import { WithGenerate, type WithGenerateFunc } from "../builder/mixins/WithGenerate";
 import { WithValidate, type WithValidateFunc } from "../builder/mixins/WithValidate";
-import { WithCompute, type WithComputeFunc } from "../builder/mixins/WithCompute";
 
 export interface DateFieldBuilder extends FieldBuilder<Date> {
   nullable: WithNullableProp<this>;
   readable: WithReadableFunc<this>;
   writable: WithWritableFunc<this>;
   generate: WithGenerateFunc<this, Date>;
-  compute: WithComputeFunc<this>;
   validate: WithValidateFunc<this>;
 }
 
@@ -23,7 +21,6 @@ const EnhancedBuilder = composeFieldBuilder<DateFieldBuilder>(FieldBuilder<Date>
   WithReadable,
   WithWritable,
   WithGenerate,
-  WithCompute,
   WithValidate,
 ]);
 

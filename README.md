@@ -41,14 +41,14 @@ We believe errors should be **loud and immediate**. When something goes wrong, V
 - **Type safety** - Invalid operations are prevented at compile-time when possible
 
 ```typescript
-const user = User.from({ name: 'John' }); // No email provided
+const user = User.from({ name: 'John' })   // No email provided
 
-user.$name.get();       // ✅ 'John' - field is initialized
-user.$email.get();      // ❌ Throws - field is uninitialized
+user.name       // ✅ 'John' - field is initialized
+user.email      // ❌ Throws - field is uninitialized
 ```
 
 ### 🎯 **Centralized Business Rules**
-Rather than spreading business logic like butter throughout your application layers, Verve keeps domain rules **transparent and in one place** - your model definitions. This means:
+Rather than spreading business logic throughout your application layers, Verve keeps domain rules **transparent and in one place** - your model definitions. This means:
 
 - **Field-level validation** - Business rule(s) applicable on single field
 - **Authorization logic** - Access control is declared alongside field definitions  
@@ -60,9 +60,9 @@ Rather than spreading business logic like butter throughout your application lay
   // Business rule: Salary constraints based on level
   salary: number().validate([
     (value, model) => {
-      if (model.level === 'junior') return value <= 80_000;
-      if (model.level === 'senior') return value >= 100_000;
-      return value > 0;
+      if (model.level === 'junior') return value <= 80_000
+      if (model.level === 'senior') return value >= 100_000
+      return value > 0
     }
   ])
   // Authorization: Only HR can read salary
@@ -107,27 +107,25 @@ This enables safe partial model hydration where you can work with incomplete dat
 
 ```typescript
 // Partial hydration from API - only some fields provided
-const user = User.from({ id: '123', name: 'John' });
+const user = User.from({ id: '123', name: 'John' })
 
-user.$name.get();        // ✅ 'John' - field is initialized
-user.$email.get();       // ❌ Throws - field is uninitialized
-user.$isActive.get();    // ❌ Throws - field is uninitialized
+user.name        // ✅ 'John' - field is initialized
+user.email       // ❌ Throws - field is uninitialized
+user.isActive    // ❌ Throws - field is uninitialized
 
-// Check field state safely
-user.$email.isPresent();  // false - field is uninitialized
-user.$name.isPresent();   // true - field has value
+// Check field state safely via model method
+user.hasPresent('email')    // false - field 'email' is uninitialized
+user.hasPresent('name')     // true - field 'name' has value
 
-// Validate field against it's validators safely
-const errors = user.$email.validate()    // VerveErrorList
+// Validate model fields against their validators safely
+const errors = user.validate()    // VerveErrorList
 if (errors.isEmpty()) {
   // You're good to go
 }
-// …or validate all model fields at once before executing some logic
-const errors = user.validate()          // VerveErrorList
 
 // Nullable vs uninitialized
-user.$bio.set(null);      // ✅ Explicitly set to null (if nullable)
-user.$email.set(null);    // ❌ Throws since field is not nullable (IDE should also complain)
+user.set({ bio: null })      // ✅ Explicitly set to null (if nullable)
+user.set({ email: null })    // ❌ Throws since field is not nullable (IDE should also complain)
 ```
 
 These principles ensure your domain models are **secure, predictable, and maintainable** while providing excellent developer experience through clear error messages and type safety.
@@ -135,8 +133,7 @@ These principles ensure your domain models are **secure, predictable, and mainta
 ## Practical Example
 
 ```typescript
-import { Model, text, id, number, bool, option } from 'verve';
-import { model, can } from 'verve';
+import { Model, model, can, text, id, number, bool, option } from 'verve'
 
 enum Role {
   USER = 'user',
@@ -190,8 +187,7 @@ Let's build your first Verve model step by step:
 ### 1. Define a Basic Model
 
 ```typescript
-import { Model, text, id, number, bool, date } from 'verve';
-import { model } from 'verve';
+import { Model, model, text, id, number, bool, date } from 'verve'
 
 @model({
   id: id(),
@@ -383,13 +379,13 @@ Set context for secure, request-scoped authorization:
 #### Node.js Server
 
 ```typescript
-import { Context } from 'verve';
-import express from 'express';
+import { Context } from 'verve'
+import express from 'express'
 
 // Set up proper request isolation for Node.js apps
-Context.useAsyncLocalStorage();
+Context.useAsyncLocalStorage()
 
-const app = express();
+const app = express()
 
 // Middleware to extract user context from request  
 app.use((req, res, next) => {
@@ -399,28 +395,28 @@ app.use((req, res, next) => {
       role: req.user?.role,
       department: req.user?.department
     }
-  };
+  }
   
   // Context automatically scoped to this request
   Context.run(userContext, () => {
-    next();
-  });
-});
+    next()
+  })
+})
 
 // Your route handlers
 app.get('/profile/:userId', (req, res) => {
   // Context automatically available, no context bleeding between requests
-  const user = User.make({ id: req.params.userId, email: 'john@example.com' });
+  const user = User.make({ id: req.params.userId, email: 'john@example.com' })
   
   try {
-    const sensitiveData = user.ssn; // ❌ Unauthorized access
-    res.json({ ssn: sensitiveData });
+    const sensitiveData = user.ssn // ❌ Unauthorized access
+    res.json({ ssn: sensitiveData })
   } catch (error) {
-    res.status(403).json({ error: 'Unauthorized' });
+    res.status(403).json({ error: 'Unauthorized' })
   }
   
-  res.json({ email: user.email }); // ✅ Public field
-});
+  res.json({ email: user.email }) // ✅ Public field
+})
 ```
 
 #### Browser Environment
@@ -428,7 +424,7 @@ app.get('/profile/:userId', (req, res) => {
 Browser automatically uses global storage, no additional setup needed. If you want to be explicit:
 
 ```typescript
-import { Context } from 'verve';
+import { Context } from 'verve'
 
 // Set context when user logs in
 function handleLogin(user) {
@@ -438,30 +434,30 @@ function handleLogin(user) {
       role: user.role,
       permissions: user.permissions
     }
-  });
+  })
 }
 
 // Clear context when user logs out
 function handleLogout() {
-  Context.reset();
+  Context.reset()
 }
 
 // Context persists across your SPA until reset
-const user = User.make({ email: 'john@example.com' });
-console.log(user.email); // Uses current logged-in user context
+const user = User.make({ email: 'john@example.com' })
+console.log(user.email) // Uses current logged-in user context
 ```
 
 #### Any Node.js Framework
 
 ```typescript
 // Set up once at app startup
-Context.useAsyncLocalStorage();
+Context.useAsyncLocalStorage()
 
 // Works with Fastify, Koa, NestJS, or any Node.js app
 Context.run(userContext, () => {
   // All Verve operations use this context
-  const model = MyModel.from(data);
-  model.someAuthorizedMethod();
+  const model = MyModel.from(data)
+  model.someAuthorizedMethod()
 });
 ```
 
@@ -558,7 +554,6 @@ text()
   .nullable                             // Allow null values
   .default('Hello World')               // Static default value
   .generate(() => crypto.randomUUID())  // Generate value on model creation
-  .compute((model) => `${model.$firstName.get()} ${model.$lastName.get()}`)  // Always calculated
   .validate([(value) => value.length > 3])  // Validation rules
   .validate.only([(value) => value.includes('@')])  // Ignore global validators, use only these
   .validate.lazy([(value) => value.length < 1000])  // Lazy validation (not run immediately)
@@ -573,7 +568,6 @@ number()
   .nullable                             // Allow null values
   .default(0)                          // Static default value
   .generate(() => Math.random())        // Dynamic generated value
-  .compute((model) => model.$price.get() * model.$quantity.get())  // Always calculated
   .validate([(value) => value > 0])    // Validation rules
   .readable((context, model) => context.auth.role === 'admin')
   .writable((context, model) => context.auth.department === 'finance')
@@ -585,7 +579,6 @@ number()
 bool()
   .nullable                             // Allow null values
   .default(true)                       // Static default value
-  .compute((model) => model.$age.get() >= 18)  // Always calculated
   .validate([(value) => value === true])  // Validation rules
   .readable((context, model) => context.auth.role === 'admin')
   .writable((context, model) => context.auth.id === model.ownerId)
@@ -597,7 +590,6 @@ bool()
 date()
   .nullable                             // Allow null values
   .generate(() => new Date())          // Generate value on model creation
-  .compute((model) => new Date(model.$timestamp.get()))  // Always calculated
   .validate([(value) => value > new Date('2000-01-01')])  // Validation rules
   .readable((context, model) => context.auth.role === 'admin')
   .writable((context, model) => context.auth.id === model.ownerId)
@@ -611,7 +603,6 @@ date()
 option(['draft', 'published', 'archived'])
   .nullable                             // Allow null values
   .default('draft')                    // Static default value
-  .compute((model) => model.$isActive.get() ? 'active' : 'inactive')  // Always calculated
   .validate([(value) => value !== 'archived'])  // Additional validation
   .readable((context, model) => context.auth.role === 'admin')
   .writable((context, model) => context.auth.role === 'editor')
@@ -625,13 +616,9 @@ list<string>()
   .default([])                         // Static default value
   .default(() => ['default', 'items']) // Dynamic default value
   .generate(() => [crypto.randomUUID()]) // Generate value on model creation
-  .compute((model) => model.$tags.get().filter(tag => tag.startsWith('public')))  // Always calculated
   .validate([(items) => items.length <= 10])  // Validation rules
   .readable((context, model) => context.auth.role === 'admin')
   .writable((context, model) => context.auth.id === model.ownerId)
-
-// With model associations
-list<User>('User').associate('id').to('user.id')
 ```
 
 #### Record Field
@@ -642,13 +629,9 @@ record<{ name: string; age: number }>()
   .default({ name: 'Anonymous', age: 0 })  // Static default value
   .default(() => ({ name: 'User', age: new Date().getFullYear() - 2000 }))  // Dynamic default
   .generate(() => ({ id: crypto.randomUUID(), timestamp: Date.now() }))  // Generate on creation
-  .compute((model) => ({ fullName: model.$firstName.get() + ' ' + model.$lastName.get() }))  // Always calculated
   .validate([(obj) => obj.name && obj.name.length > 0])  // Validation rules
   .readable((context, model) => context.auth.role === 'admin')
   .writable((context, model) => context.auth.id === model.ownerId)
-
-// With model associations
-record<Address>('Address').associate('id').to('address.id')
 ```
 
 ## Global Field Configuration
@@ -658,13 +641,13 @@ Set up global behaviors that apply to all fields of a specific type across your 
 ### Global Generators
 
 ```typescript
-import { IdField, TextField, DateField } from 'verve';
+import { IdField, TextField, DateField } from 'verve'
 
 // Set global ID generation for all id() fields
-IdField.setGlobalGenerator(() => crypto.randomUUID());
+IdField.setGlobalGenerator(() => crypto.randomUUID())
 
 // Set global timestamp generation for all date() fields  
-DateField.setGlobalGenerator(() => new Date());
+DateField.setGlobalGenerator(() => new Date())
 
 // Now all models automatically use these generators
 @model({
@@ -679,15 +662,15 @@ class User extends Model.Typed<'User'>() {}
 ```typescript
 // Set global validation for all text() fields
 TextField.setGlobalValidator((value) => {
-  if (typeof value !== 'string') return false;
-  return value.trim().length > 0; // No empty strings allowed
-});
+  if (typeof value !== 'string') return false
+  return value.trim().length > 0 // No empty strings allowed
+})
 
 // Set global validation for all date() fields
 DateField.setGlobalValidator((value) => {
-  const minDate = new Date('1970-01-01');
-  const maxDate = new Date('2100-12-31');
-  return value >= minDate && value <= maxDate;
+  const minDate = new Date('1970-01-01')
+  const maxDate = new Date('2100-12-31')
+  return value >= minDate && value <= maxDate
 });
 
 // Global validators run on ALL fields of that type
@@ -734,19 +717,19 @@ class User extends Model.Typed<'User'>() {}
 // Security: Prevent XSS in all text fields
 // Note: Use more comprehensive regex to secure your text fields
 TextField.setGlobalValidator((value) => {
-  return !/<script|javascript:|on\w+=/i.test(value);
-});
+  return !/<script|javascript:|on\w+=/i.test(value)
+})
 
 // Business rules: All dates must be reasonable (for our application use-case)
 DateField.setGlobalValidator((value) => {
-  const now = new Date();
-  const minDate = new Date(0); // 1970-01-01
-  const maxDate = new Date('2050-01-01');
-  return value >= minDate && value <= maxDate;
-});
+  const now = new Date()
+  const minDate = new Date(0) // 1970-01-01
+  const maxDate = new Date('2050-01-01')
+  return value >= minDate && value <= maxDate
+})
 
 // Consistency: All IDs follow same format
-IdField.setGlobalGenerator(() => crypto.randomUUID());
+IdField.setGlobalGenerator(() => crypto.randomUUID())
 ```
 
 **Key Benefits:**
@@ -757,82 +740,56 @@ IdField.setGlobalGenerator(() => crypto.randomUUID());
 
 ## Field Access Methods
 
-Every field in your model has a `$fieldName` property that provides these methods:
+Every model has various helper methods that can help you retrieve or modify field values:
 
 ### Value Access
 
 ```typescript
-const user = User.make({ name: 'John', age: 30 });
+const user = User.make({ name: 'John', age: 30 })
 
 // Get field value (throws if not valid/readable/initialized)
-user.$name.get()           // 'John'
+user.name                   // 'John'
 
 // Unsafe get (returns undefined if the field is not initialized and bypasses all validators and checks)
-user.$name.unsafeGet()     // 'John' or undefined
+user.unsafeGet('name')      // 'John' or undefined
 
 // Set field value (throws if not writable)
-user.$name.set('Jane')
+user.set({ name: 'Jane' })
 
 // Completely unset the value from the model's state (uninitialize)
-user.$name.unset()
+user.unset('name')
 ```
 
 ### Value Checking
 
 ```typescript
-// Check if field equals a value
-user.$name.is('John')      // true/false
-
 // Check if field is empty/present
-user.$name.isEmpty()       // true if null/undefined or empty array/object
-user.$name.isPresent()     // opposite of the isEmpty method
+user.hasEmpty('name')       // true if null/undefined or empty array/object
+user.hasPresent('name')     // opposite of the isEmpty method
 
 // Check field validity
-user.$name.isValid()       // true if passes all validators
-user.$name.validate()      // Returns array of error messages
+user.hasValid('name')       // true if passes all validators
+user.validate('name')       // returns VerveErrorList related to 'name' field
+user.validate()             // returns VerveErrorList (merged errors from all fields)
 ```
 
-### Field Operations
+### Generate Value
 
 ```typescript
 // Generate field value (for fields with lazy .generate())
-user.$id.generate()        // Generates new ID
-
-// Compute field value (for fields with .compute())
-user.$fullName.compute()   // Computes value on access
-
-// Check permissions
-user.$ssn.isReadable()
-user.$salary.isWritable()
+user.generate('id')         // generates new ID
+user.generate()             // generates values for all fields that can be generated
 ```
 
-**Prefer field methods over direct property access:**
+**Prefer field methods to set values over direct assignment:**
 
 ```typescript
 // ✅ Recommended
-user.$email.get()
-user.$email.set('new@example.com')
+user.set({ email: 'new@example.com', name: 'Martin' })
 
 // ⚠️ Also works but prefer above method
-// Important to note: Direct property access (getter) bypasses field validation (validators & whether field is initialized)
-user.email
 user.email = 'new@example.com'
-```
-
-**Difference in behaviour between direct property access and field getter:**
-
-```typescript
-// Uninitialized (undefined) field
-user.email          // -> undefined
-user.$email.get()   // -> throws an error (field is not initialized)
-
-// Non-readable field
-user.email          // -> throws an error (field is not readable)
-user.$email.get()   // -> throws an error (field is not readable)
-
-// Field that fails some of the validators
-user.email          // -> any?
-user.$email.get()   // -> throws an error(specific validator error)
+user.name = 'Martin'
 ```
 
 ## Model Types & Instantiation
@@ -872,7 +829,7 @@ After running `npx verve`, your models get full type safety:
 const newUser = User.make({
   name: 'John',
   email: 'john@example.com'
-});
+})
 newUser.isNew()        // true
 newUser.getChanges()   // { id: '1', name: 'John', email: 'john@example.com', isActive: false }
 
@@ -883,15 +840,15 @@ const existingUser = User.from({
   id: '123',
   name: 'John', 
   email: 'john@example.com'
-});
+})
 existingUser.isExisting()  // true
 existingUser.getChanges()  // {} - no changes yet
 
-existingUser.$name.set('Jane')
+existingUser.set({ name: 'Jane' })
 existingUser.getChanges()  // { name: 'Jane' } - only the mutation
 
 // Manually generating fields on a model that was hydrated also fails
-existingUser.$id.generate() // ❌ Field cannot be generated on existing model
+existingUser.generate('id') // ❌ Field cannot be generated on existing model
 ```
 
 #### Model Properties
@@ -928,7 +885,7 @@ const user = User.from({ name: 'Martin', password: '123456' })
 user.getChanges()   // {}
 
 // But works if I mutate the password now and try to get changes
-user.$password.set('12345678')
+user.set({ password: '12345678' })
 user.getChanges()   // { password: '12345678' }
 ```
 
@@ -940,18 +897,17 @@ Every model instance provides these methods:
 
 ```typescript
 const user = User.from({ name: 'John', age: 30 })
-user.$name.set('Jane')
-user.$name.set('Joe')
-user.$age.set(31)
+user.set({ name: 'Jane', age: 31 })
+user.set({ name: 'Joe' })
 
-// Get latest changes per field since hydration
+// Gets latest changes per field since hydration
 user.getChanges()      // { name: 'Joe', age: 31 }
 
-// Get detailed change log with all changes
+// Gets detailed change log with all changes
 user.getChangeLog()    // Array of change objects with timestamps including all changes (not just the latest field change)
 
 // Example after unsetting field
-user.$name.unset()    // This erases change log for 'name' field
+user.unset('name')    // This erases change log for 'name' field
 user.getChanges()     // { age: 31 }
 user.getChangeLog()   // Would not contain any changes on 'name' field
 
@@ -985,14 +941,14 @@ The `make` vs `from` distinction ensures you always know exactly what data has c
   // Authorization based on field value
   confidentialNotes: text().readable((context, doc, value) => {
     // Only show if user has clearance level >= document level
-    return context.auth.clearanceLevel >= doc.securityLevel;
+    return context.auth.clearanceLevel >= doc.securityLevel
   }),
   
   // Time-based access
   temporaryData: text().readable((context) => {
     const now = new Date();
     const workHours = now.getHours() >= 9 && now.getHours() <= 17;
-    return context.auth.role === Role.ADMIN || workHours;
+    return context.auth.role === Role.ADMIN || workHours
   })
 })
 class SecureDocument extends Model.Typed<'SecureDocument'>() {}
@@ -1009,30 +965,30 @@ Verve throws clear, actionable errors for security violations and validation fai
 ```typescript
 try {
   // Validation error - business rule violation
-  const user = User.make({ age: 16 }); // ❌ Age must be >= 18
+  const user = User.make({ age: 16 }) // ❌ Age must be >= 18
 } catch (error) {
-  console.log(error.message); // "FIELD_VALIDATOR_FAILED: Field 'age' validator 'ageValidator' failed on model 'User'"
+  console.log(error.message) // "FIELD_VALIDATOR_FAILED: Field 'age' validator 'ageValidator' failed on model 'User'"
 }
 
 try {
   // Authorization error - field not readable
-  console.log(user.ssn); // ❌ Field not readable by current context
+  console.log(user.ssn) // ❌ Field not readable by current context
 } catch (error) {
-  console.log(error.message); // "FIELD_NOT_READABLE: Field 'ssn' is not readable on model 'User'"
+  console.log(error.message) // "FIELD_NOT_READABLE: Field 'ssn' is not readable on model 'User'"
 }
 
 try {
   // Authorization error - method not authorized
-  user.promoteToAdmin(); // ❌ Only admins can promote
+  user.promoteToAdmin() // ❌ Only admins can promote
 } catch (error) {
-  console.log(error.message); // "UNAUTHORIZED_METHOD_CALL: Unauthorized to call method 'promoteToAdmin'"
+  console.log(error.message) // "UNAUTHORIZED_METHOD_CALL: Unauthorized to call method 'promoteToAdmin'"
 }
 
 try {
   // Model instantiation error
-  new User(); // ❌ Direct instantiation not allowed
+  new User() // ❌ Direct instantiation not allowed
 } catch (error) {
-  console.log(error.message); // "DIRECT_INSTANTIATION_NOT_ALLOWED: Direct instantiation not allowed. Use .make() or .from() instead."
+  console.log(error.message) // "DIRECT_INSTANTIATION_NOT_ALLOWED: Direct instantiation not allowed. Use .make() or .from() instead."
 }
 ```
 
@@ -1041,9 +997,9 @@ try {
 Use the `VerveError` class to check for specific error types:
 
 ```typescript
-import { VerveError, ErrorCode } from 'verve';
+import { VerveError, ErrorCode } from 'verve'
 
-const errors = user.$ssn.validate();    // Returns VerveErrorList
+const errors = user.validate('ssn')    // Returns VerveErrorList
 
 // Check presence of the errors
 if (errors.isPresent()) {
@@ -1068,9 +1024,9 @@ if (errors.isEmpty()) {
 **You can also use validate method on the model to validate all fields:**
 
 ```typescript
-import { VerveError, ErrorCode } from 'verve';
+import { VerveError, ErrorCode } from 'verve'
 
-const errors = user.validate();    // Returns VerveErrorList
+const errors = user.validate()    // Returns VerveErrorList
 
 // This might contain validation errors for all fields that failed
 if (errors.isEmpty()) {
@@ -1083,7 +1039,7 @@ if (errors.isEmpty()) {
 Override default error messages for better user experience or localization:
 
 ```typescript
-import { ErrorRegistry, ErrorCode } from 'verve';
+import { ErrorRegistry, ErrorCode } from 'verve'
 
 // Register custom error messages
 ErrorRegistry.register({
@@ -1092,13 +1048,13 @@ ErrorRegistry.register({
   [ErrorCode.FIELD_VALIDATOR_FAILED]: 'The value you entered is not valid.',
   [ErrorCode.UNAUTHORIZED_METHOD_CALL]: 'You are not authorized to perform this action.',
   [ErrorCode.FIELD_NOT_NULLABLE]: 'This field is required and cannot be empty.'
-});
+})
 
 // Now all errors use your custom messages
 try {
-  user.$ssn.get(); // ❌ Not readable
+  user.ssn // ❌ Not readable
 } catch (error) {
-  console.log(error.message); 
+  console.log(error.message) 
   // "FIELD_NOT_READABLE: You do not have permission to view this information."
 }
 ```
@@ -1113,13 +1069,13 @@ ErrorRegistry.register({
   [ErrorCode.FIELD_VALIDATOR_FAILED]: "Field '{{field}}' validator '{{validator}}' failed on model '{{model}}'",
   [ErrorCode.FIELD_NOT_READABLE]: "Field '{{field}}' is not readable on model '{{model}}'",
   [ErrorCode.ASSOCIATION_INCOMPLETE]: 'You must call .to(...) after .associate({{from}})',
-});
+})
 
 // Templates are automatically populated with context
 try {
-  user.$age.set(-5); // ❌ Validation fails
+  user.set({ age: -5 }) // ❌ Validation fails
 } catch (error) {
-  console.log(error.message);
+  console.log(error.message)
   // "FIELD_VALIDATOR_FAILED: The value for 'age' is invalid on model User"
 }
 ```
@@ -1129,18 +1085,18 @@ try {
 Hide error codes in production to prevent information leakage:
 
 ```typescript
-import { ErrorRegistry } from 'verve';
+import { ErrorRegistry } from 'verve'
 
 // In production, hide error codes from end users
 if (process.env.NODE_ENV === 'production') {
-  ErrorRegistry.hideCodes();
+  ErrorRegistry.hideCodes()
 }
 
 // Now errors only show user-friendly messages without codes
 try {
-  user.$creditScore.get(); // ❌ Not readable
+  user.creditScore // ❌ Not readable
 } catch (error) {
-  console.log(error.message);
+  console.log(error.message)
   
   // Development: "FIELD_NOT_READABLE: Field 'creditScore' is not readable on model 'User'"
   // Production:  "Field 'creditScore' is not readable on model 'User'"
@@ -1150,21 +1106,21 @@ try {
 Or differentiate between  production and development errors completely:
 
 ```typescript
-import { ErrorRegistry } from 'verve';
+import { ErrorRegistry } from 'verve'
 
 // In production, hide error codes from end users
 if (process.env.NODE_ENV === 'production') {
   ErrorRegistry.register({
     [ErrorCode.FIELD_NOT_READABLE]: "You're not authorized to read '{{field}}'",
-  });
-  ErrorRegistry.hideCodes();
+  })
+  ErrorRegistry.hideCodes()
 }
 
 // Now errors only show user-friendly messages without codes or model information
 try {
-  user.$creditScore.get(); // ❌ Not readable
+  user.creditScore // ❌ Not readable
 } catch (error) {
-  console.log(error.message);
+  console.log(error.message)
   
   // Development: "FIELD_NOT_READABLE: Field 'creditScore' is not readable on model 'User'"
   // Production:  "You're not authorized to read 'creditScore'"
@@ -1173,12 +1129,12 @@ try {
 
 ### Error Logging & Monitoring
 ```typescript
-import { VerveError, ErrorCode } from 'verve';
+import { VerveError, ErrorCode } from 'verve'
 
 function logError(error: unknown) {
   if (error instanceof VerveError) {
     logVerveError(error)
-    return;
+    return
   }
   // Rest of your error logging logic
 }
@@ -1191,7 +1147,7 @@ function logVerveError(error: VerveError) {
       error: error.message,
       user: context.auth.id,
       timestamp: new Date().toISOString()
-    });
+    })
   }
   
   // Log validation failures for data quality monitoring
@@ -1199,7 +1155,7 @@ function logVerveError(error: VerveError) {
     logger.info('Validation failure:', {
       error: error.message,
       user: context.auth.id
-    });
+    })
   }
 }
 ```
@@ -1211,19 +1167,19 @@ The error system ensures your application fails securely with actionable feedbac
 Full type safety with excellent IDE support:
 
 ```typescript
-const user = User.make({ email: 'test@example.com' });
+const user = User.make({ email: 'test@example.com' })
 
 // ✅ TypeScript knows these field types
-user.email;        // string
-user.age;          // number | null  
-user.isActive;     // boolean
+user.email        // string
+user.age          // number | null  
+user.isActive     // boolean
 
 // ✅ Method parameters are typed
-user.$email.set('new@example.com');   // ✅ string
-user.$age.set(25)                     // ✅ number
+user.set({ email: 'new@example.com' })    // ✅ string
+user.set({ age: 25 })                     // ✅ number
 
-user.$age.set('Hello')                // ❌ TypeScript error
-user.$random.set('Something')         // ❌ TypeScript error
+user.set({ age: 'Hello' })                // ❌ TypeScript error
+user.set({ random: 'Something' })         // ❌ TypeScript error
 ```
 
 ## Best Practices
@@ -1254,7 +1210,7 @@ const SecurityRules = {
   isAdmin: (context: any) => context.auth.role === Role.ADMIN,
   isOwnerOrAdmin: (context: any, model: any) => 
     SecurityRules.isOwner(context, model) || SecurityRules.isAdmin(context)
-};
+}
 
 @model({
   privateData: text().readable(SecurityRules.isOwnerOrAdmin)
